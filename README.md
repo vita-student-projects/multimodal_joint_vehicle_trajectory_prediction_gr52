@@ -1,9 +1,7 @@
 
 # CIVIL 459: Project
 <hr style="clear:both">
-This repository contains our contribution to the TrajPred framework from VITA.It was done as part of the 
-Deep Learning for Autonomous Vehicle course [here](https://edu.epfl.ch/coursebook/fr/deep-learning-for-autonomous-vehicles-CIVIL-459)
-at EPFL.
+This repository contains our contribution to the TrajPred framework from VITA.It was done as part of the Deep Learning for Autonomous Vehicle course at EPFL.
 
 **Authors:** \
 [Anne-Valérie Preto](mailto:anne-valerie.preto@epfl.ch)\
@@ -19,13 +17,13 @@ To achieve this, however, all the datasets need to be grouped together in a sing
 The models are represented in the right part of the pipeline. The Argo datasets need to be pre-processed accordingly to the model used.
 
  The pipeline of the framework is defined below: 
- ![plot](assets/vita_pipeline_2.png)
+ ![plot](hivt/assets/vita_pipeline_2.png)
 
  ### Add HiVT model in TrajPred
 
 The [HiVT](https://github.com/ZikangZhou/HiVT) model (Hierarchical Vector Transformer for Multi-Agent Motion Prediction) from [Zikang Zhou](https://github.com/ZikangZhou), was chosen since it showed state-of-the-art performance on the Argoverse motion forecasting benchmark.
 
-![plot](assets/hivt.png)
+![plot](hivt/assets/hivt.png)
 
 To do so, every line of preprocessing from the HiVT framework needs to be changed.
 New informations and transformations are added on the universal dataset to be used later on the model. 
