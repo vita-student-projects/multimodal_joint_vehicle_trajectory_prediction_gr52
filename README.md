@@ -89,6 +89,14 @@ A TemporalData class with the following keys:
 * ```origin```: The origin
 * ```theta```: The theta angle(int)
 
+### Results 
+The following results are expected for validation when using only the Argoverse V1 dataset: 
+
+
+| Models | minADE | minFDE | MR |
+| :--- | :---: | :---: | :---: |
+| HiVT-64 | 0.69 | 1.03 | 0.10 |
+| HiVT-128 | 0.66 | 0.97 | 0.09 |
 
 ## Getting started:
 
@@ -126,10 +134,10 @@ conda install pytorch-lightning==1.5.2 -c conda-forge
 4\. Install [Argoverse 1 API](https://github.com/argoai/argoverse-api).
 
 
-5\. Specify correct routes on data.yaml
+5\. Specify correct routes on data.yaml (or izar in the examples)
 
 
-6\. Preproces`
+6\. Preproces
 
 
 ```
@@ -144,8 +152,10 @@ Preprocessing can be parallelized by setting the data.num_splits_preprocess para
 ```
 python trajpred/trainer.py data=izar -cn config.yaml
 ```
+The config file config.yaml is the main config. By specifying  ```data=izar``` we override the data value of the config with izar. 
 
-8\. Evaluation
+
+8\. Evaluate
 
 ```bash
 python trajpred/evaluator.py +load_type=best
