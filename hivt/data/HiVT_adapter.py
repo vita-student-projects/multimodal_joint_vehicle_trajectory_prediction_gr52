@@ -20,14 +20,6 @@ from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecas
 from trajpred import tptensor
 from trajpred.tptensor import TPTensor
 from trajpred.baselines.hivt.utils import TemporalData
-#TODO: check for path root, raw file name, processed file names
-
-
-#TODO: delete if runs smoothly without
-#also delete get_obj_feats and just keep the num_timesteps etc outside the func
-#Since the theta is computed the same yaw/theta as in HiVT 
-#Otherwise we do the work twice
-
 
 
 
@@ -54,10 +46,7 @@ class HiVTAdapter(BaseModelAdapter):
         else:
             raise ValueError(data_split + ' is not valid')
         self.root = root
-        #self._raw_file_names = os.listdir(self.raw_dir)
-        #self._processed_file_names = [os.path.splitext(f)[0] + '.pt' for f in self.raw_file_names]
-        #self._processed_paths = [os.path.join(self.processed_dir, f) for f in self._processed_file_names]
-        super(HiVTAdapter, self).__init__(root) #transform=transform in the parenthesis
+        super(HiVTAdapter, self).__init__(root) 
         
     def get_obj_feats(self, data: Dict) -> Dict:
         if hasattr(self, 'len_lane_cl'):
@@ -67,44 +56,40 @@ class HiVTAdapter(BaseModelAdapter):
             self.len_lane_centerlines = 0
             self.counter_pnts = 0
             self.counter_lane = 0
-
+        
+        #Define the parameters of the dataset 
         feat_cfg = self.config.data_features
         max_pnts_per_lane = self.config.model.max_pnts_per_lane
         num_timesteps = feat_cfg.num_future_ts + feat_cfg.num_past_ts
-        obs_timesteps = feat_cfg.num_past_ts
-        pred_timesteps = feat_cfg.num_future_ts
+        obs_timesteps = feat_cfg.num_past_ts #timesteps in the historical data (=20 for argo)
+        pred_timesteps = feat_cfg.num_future_ts #timesteps for the prediction (=30 for argo)
 
         max_num_roads = self.config.model.max_num_roads  # manually found
         max_num_agents = self.config.model.max_num_agents  # manually found
+        
+        # ego vehicle correspond to the agent vehicle
+        ego_traj = np.concatenate((np.array(data['trajs'][1]), np.ones( (len(data['trajs'][1]),1))), axis=1)
 
-        ego_traj = np.concatenate((np.array(data['trajs'][0]), np.ones( (len(data['trajs'][0]),1))), axis=1)
-
-
-        others_traj = data['trajs'][1:]
+        
+        others_traj = data['trajs'][0] + data['trajs'][2:]
     
         am = ArgoverseMap()
         split = self.data_split
         radius = 50
         df = data
-    
-        # filter out actors that are unseen during the historical time steps
-
         
+        # filter out actors that are unseen during the historical timesteps
         timestamps = data['steps']
-        #print(len(data['trajs']),'\n \n' ,data['trajs'][0].shape)
         historical_timestamps = timestamps[:][: obs_timesteps]
-        actor_ids = list(data['trajs'])
-        num_nodes = len(data['trajs'])
-    
-        #av_df = data[data['OBJECT_TYPE'] == 'AV'].iloc
-        #av_index = actor_ids.index(av_df[0]['TRACK_ID'])
-        #av_index = actor_ids.index(data['trajs'][0])
+        #list of actor ids that have been observed at least once during historical timesteps
+        actor_ids=list()
+        
+        actor_ids = [i for i,_ in enumerate(data['steps']) if np.sum(_<20)>0 ]    
+        filter_steps = data['steps'][0][:obs_timesteps]
+
+        num_nodes = len(actor_ids)
         av_index = feat_cfg.agent_idx
-        #av_index = data['trajs'][0]
-        #agent_df = data[data['OBJECT_TYPE'] == 'AGENT'].iloc
         agent_index = list(range(1,len(data['trajs']))) 
-        #actor_ids.index(data['idx'][1]) 
-        #let's try with the first agent :) hoping it will always be the first the agent and not the second or third (=! other)
         
         city = data['city'][0]
     
@@ -118,18 +103,16 @@ class HiVTAdapter(BaseModelAdapter):
                                    [torch.sin(theta), torch.cos(theta)]])
     
         # initialization
+        # create a mask to have the same shapes for all vehicles, filled with zero if unobserved
         x = torch.zeros(num_nodes, num_timesteps, 2, dtype=torch.float)
         edge_index = torch.LongTensor(list(permutations(range(num_nodes), 2))).t().contiguous()
         padding_mask = torch.ones(num_nodes, num_timesteps, dtype=torch.bool)
         bos_mask = torch.zeros(num_nodes, obs_timesteps, dtype=torch.bool)
         rotate_angles = torch.zeros(num_nodes, dtype=torch.float)
         
-        for i in range(len(data['trajs'])):
-            
-            #node_idx = actor_ids.index(actor_id)
+        for i in actor_ids:
             node_idx = i
             node_steps = data['steps'][i]
-            #node_steps = [timestamps.index(timestamp) for timestamp in actor_df['steps']]
             padding_mask[node_idx, node_steps] = False
             if padding_mask[node_idx, obs_timesteps-1]:  # make no predictions for actors that are unseen at the current time step
                 padding_mask[node_idx, obs_timesteps:] = True
@@ -155,51 +138,20 @@ class HiVTAdapter(BaseModelAdapter):
                                   torch.zeros(num_nodes, obs_timesteps-1, 2),
                                   x[:, 1: obs_timesteps] - x[:, : obs_timesteps-1])
         x[:, 0] = torch.zeros(num_nodes, 2)
-        #print(x.shape, '\n\n\t', x[0])
-    
-        # get lane features at the current time step
-                                                             
-        #df_19 = df[df['TIMESTAMP'] == timestamps[19]]
-        #df_19 = data[data['steps']==timestamps[obs_timesteps-1]]                                                      
-        node_inds_19 = list(range(len(data['trajs']))) 
-        #maybe need to change df_19['trajs'][:,0] to df_19['trajs'][:,:,0], but shouldnt be necessary since we only have one
+        
+        # get lane features at the current time step                                                     
+        node_inds_19 = actor_ids
         node_positions_19 = torch.from_numpy(np.stack([x[:,obs_timesteps-1,0], x[:,obs_timesteps-1,1]], axis=-1)).float()
                                                              
         (lane_vectors, is_intersections, turn_directions, traffic_controls, lane_actor_index,
         lane_actor_vectors) = get_lane_features(am, data, node_inds_19, node_positions_19, origin, rotate_mat, city, radius)
         del data['map_pnts'] # delete raw map to reduce redundant data
-        y = None if split == 'test' else x[:, obs_timesteps:]
-        raw_path = "/Users/annevaleriepreto/Documents/EPFL/MA-2/Deep_learning/argodataset/train/data"
-        #seq_id = os.path.splitext(os.listdir(raw_path))[0]
-        seq_id = data["idx"]
-        print(seq_id)
-        #breakpoint()
-        #print('in Preprocess HiVT adapter, just needs to save and run')
-        del data
-        #print("Preprocess begins")
         
-        #data={}
-        #
-        #data['x']= x[:, : obs_timesteps]  # [N, 20, 2]
-        #data['positions']= positions  # [N, 50, 2]
-        #data['edge_index']= edge_index  # [2, N x N - 1]
-        #data['y']= y  # [N, 30, 2]
-        #data['num_nodes']= num_nodes
-        #data['padding_mask']= padding_mask  # [N, 50]
-        #data['bos_mask']= bos_mask  # [N, 20]
-        #data['rotate_angles']= rotate_angles  # [N]
-        #data['lane_vectors']= lane_vectors  # [L, 2]
-        #data['is_intersections']= is_intersections  # [L]
-        #data['turn_directions']= turn_directions  # [L]
-        #data['traffic_controls']= traffic_controls  # [L]
-        #data['lane_actor_index']= lane_actor_index  # [2, E_{A-L}]
-        #data['lane_actor_vectors']= lane_actor_vectors  # [E_{A-L}, 2]
-        #data['seq_id']= int(seq_id)
-        #data['av_index']= av_index
-        #data['agent_index']= agent_index
-        #data['city']= city
-        #data['origin']= origin.unsqueeze(0)
-        #data['theta']= theta
+        y = None if split == 'test' else x[:, obs_timesteps:]
+        #raw_path = "/Users/annevaleriepreto/Documents/EPFL/MA-2/Deep_learning/argodataset/train/data"
+        seq_id = data["idx"]
+        del data
+        
         return {
             'x': x[:, : 20],  # [N, 20, 2]
             'positions': positions,  # [N, 50, 2]
@@ -222,6 +174,7 @@ class HiVTAdapter(BaseModelAdapter):
             'origin': origin.unsqueeze(0),
             'theta': theta,
         }
+    
                                                              
 def get_lane_features(am: ArgoverseMap, data,
                       node_inds: List[int],
@@ -254,9 +207,7 @@ def get_lane_features(am: ArgoverseMap, data,
                                                          
         turn_directions.append(turn_direction * torch.ones(count, dtype=torch.uint8))
         traffic_controls.append(traffic_control * torch.ones(count, dtype=torch.uint8))
-                                                       
-    #for node_position in node_positions:
-    #    lane_ids.update(am.get_lane_ids_in_xy_bbox(node_position[0], node_position[1], city, radius))
+
     node_positions = torch.matmul(node_positions - origin, rotate_mat).float()
     
     #torch.cat need a tuple of torch Tensors --> lane_positions should be that 
@@ -282,7 +233,7 @@ class ArgoverseV1DataModule(LightningDataModule):
                  root: str,
                  train_batch_size: int,
                  val_batch_size: int,
-                 shuffle: bool = True,
+                 shuffle: bool = False,
                  num_workers: int = 8,
                  pin_memory: bool = True,
                  persistent_workers: bool = True,

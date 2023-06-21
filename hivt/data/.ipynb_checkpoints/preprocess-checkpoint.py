@@ -18,7 +18,7 @@ from tqdm import tqdm
 from trajpred.config import Config
 from trajpred.entrypoint import Entrypoint
 from trajpred.data_handling.dataset_adapters.dataset_utils import to_long, to_int16, to_numpy, from_numpy
-from trajpred.baselines.hivt.utils import TemporalData
+from utils import TemporalData
 
 os.umask(0)
 
@@ -72,8 +72,8 @@ def preprocess_dataset(dataset: Entrypoint, config: Config, mode: str = 'train')
         batch_size=config.hydra.data_loader.batch_size,
         num_workers=config.hydra.data_loader.load_num_workers,
         shuffle=False,
-        collate_fn=collate_fn,
-        pin_memory=True,
+        collate_fn=collate_fn, 
+        pin_memory=False,
         drop_last=False,
     )
 
@@ -87,7 +87,7 @@ def preprocess_dataset(dataset: Entrypoint, config: Config, mode: str = 'train')
         the final preprocessed data should be called "store"
         ********************************
         '''
-        store[i] = data
+        store[i] = TemporalData(**data[0])
 
 
     ## saving preprocessed files.
@@ -97,30 +97,51 @@ def preprocess_dataset(dataset: Entrypoint, config: Config, mode: str = 'train')
     elif dataset_name == "Argo2":
         dataset_name = "av2"
     save = config.hydra.data[dataset_name.lower()][f"preprocess_{mode}"]
+    
 
-    num_samples_total_dataset = None
-    if config.hydra.data_features.dataset_name == "waymo":
-        num_samples_total_dataset = dataset.dataset_adapter.number_of_samples_in_complete_dataset
+    # Save pkl files individually
+    samples_per_split = 1
+    if config.hydra.data.waymo.root_version == "mini":
+        samples_per_split = 41
+    print("Number of files: ", len(store), " not valid: ", len([s for s in store if s is None]))
+    for i in range(len(store)):
+        if store[i] is None:
+            continue
+        total_idx = samples_per_split * config.hydra.data.split_preprocess_num + i
+        save_file_str = f"{save[:-2]}_{total_idx:07}_{str(store[i].seq_id)}.p"
+        with open(save_file_str, 'wb') as f:
+            pickle.dump(store[i], f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    
 
-    if num_samples_total_dataset is None:  # Save pkl file at once
-        with open(save, 'wb') as f:
-            #pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)
-            torch.save(TemporalData(**store), f, pickle_protocol =pickle.HIGHEST_PROTOCOL )
-            print(f"File saved to {save}.")
-    else:  # Save pkl files individually
-        samples_per_split = num_samples_total_dataset // config.hydra.data.num_splits_preprocess
-        if config.hydra.data.waymo.root_version == "mini":
-            samples_per_split = 41
-        print("Number of files: ", len(store), " not valid: ", len([s for s in store if s is None]))
-        for i in range(len(store)):
-            if store[i] is None:
-                continue
-            total_idx = samples_per_split * config.hydra.data.split_preprocess_num + i
-            save_file_str = f"{save[:-2]}_{total_idx:07}.p"
-            with open(save_file_str, 'wb') as f:
-                pickle.dump(store[i], f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # Save config file
+
+    #if num_samples_total_dataset is None:  # Save pkl file at once
+    #    with open(save, 'wb') as f:
+    #        #pickle.dump(store, f, protocol=pickle.HIGHEST_PROTOCOL)
+    #        torch.save(TemporalData(**store), f, pickle_protocol =pickle.HIGHEST_PROTOCOL )
+    #        print(f"File saved to {save}.")
+    #else:  # Save pkl files individually
+    #samples_per_split = num_samples_total_dataset // config.hydra.data.num_splits_preprocess
+        #if config.hydra.data.waymo.root_version == "mini":
+        #    samples_per_split = 41
+        #print("Number of files: ", len(store), " not valid: ", len([s for s in store if s is None]))
+        
+    #for i in range(len(store)):
+    #    if store[i] is None:
+    #        continue
+    #    total_idx = samples_per_split * config.hydra.data.split_preprocess_num + i
+    #    save_file_str = f"{save[:-2]}_{total_idx:07}.p"
+    #    #with open(save_file_str, 'wb') as f:
+    #    #    pickle.dump(store[i], f, protocol=pickle.HIGHEST_PROTOCOL)
+    #    save_path= "/Users/annevaleriepreto/Documents/EPFL/MA-2/Deep_learning/TrajPred/preprocessed/HiVT/argo/v51"
+    #    print("type:",type(store[i]))
+    #    print(store[i])
+    #    torch.save(store[i],  os.path.join(save_path, str(store[i].seq_id) + '.pt'))
+                                                          
+                                                          
+                                                          
+    # Save config file                                                     
     dataset_name = config.hydra.data_features.dataset_name
     save_dir = config.hydra.data[dataset_name.lower()]['preprocess_train']
     OmegaConf.save(config.hydra,
@@ -145,16 +166,16 @@ class PreprocessDataset():
 
 
 def collate_fn(batch):
-    batch = from_numpy(batch)
-    return_batch = dict()
-    # Batching by use a list for non-fixed size
-    i = 0
-    while batch[i] is None:
-        i += 1
-    for key in batch[i].keys():
-        # return_batch[key] = [x[key] for x in batch]
-        return_batch[key] = [x[key] for x in batch if x is not None]
-    return return_batch
+    #batch = from_numpy(batch)
+    #return_batch = dict()
+    ## Batching by use a list for non-fixed size
+    #i = 0
+    #while batch[i] is None:
+    #    i += 1
+    #for key in batch[i].keys():
+    #    # return_batch[key] = [x[key] for x in batch]
+    #    return_batch[key] = [x[key] for x in batch if x is not None]
+    return batch
 
 
 if __name__ == "__main__":
